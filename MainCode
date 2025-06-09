@@ -1,0 +1,102 @@
+import os
+import json
+import hashlib
+from cryptography.fernet import Fernet
+from datetime import datetime
+
+# === CONFIGURATION SECTION ===
+BASE_DIR = "."
+LIBRARY_FILE = os.path.join(BASE_DIR, "music_library.json")
+KEY_FILE = os.path.join(BASE_DIR, "encryption.key")
+
+# === ENCRYPTION KEY SETUP ===
+if not os.path.exists(KEY_FILE):
+    key = Fernet.generate_key()
+    with open(KEY_FILE, "wb") as keyfile:
+        keyfile.write(key)
+else:
+    with open(KEY_FILE, "rb") as keyfile:
+        key = keyfile.read()
+
+fernet = Fernet(key)
+
+# === UTILITY FUNCTIONS ===
+def load_library():
+    if os.path.exists(LIBRARY_FILE) and os.path.getsize(LIBRARY_FILE) > 0:
+        with open(LIBRARY_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_library(library):
+    with open(LIBRARY_FILE, "w") as f:
+        json.dump(library, f, indent=2)
+
+def generate_checksum(data):
+    return hashlib.sha256(data).hexdigest()
+
+def get_timestamp():
+    return datetime.utcnow().isoformat()
+
+# === CORE FUNCTIONS WITH OUTPUT ===
+
+def create_artifact(username, title, content):
+    library = load_library()
+    encrypted_data = fernet.encrypt(content.encode())
+    checksum = generate_checksum(encrypted_data)
+    filename = f"{username}_{title.replace(' ', '_')}.bin"
+    filepath = os.path.join(BASE_DIR, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(encrypted_data)
+
+    timestamp = get_timestamp()
+    library[title] = {
+        "title": title,
+        "owner": username,
+        "file": filename,
+        "checksum": checksum,
+        "created_at": timestamp,
+        "last_modified": timestamp
+    }
+
+    save_library(library)
+    print(f"[CREATE] Title: '{title}' | Owner: {username} | File: {filename}")
+    print(f"Encrypted content: {encrypted_data}")
+    print(f"SHA-256 Checksum: {checksum}")
+    print(f"Timestamp: {timestamp}\n")
+
+def read_artifact(title):
+    library = load_library()
+    if title not in library:
+        print("[READ] ERROR: Title not found in library.")
+        return
+
+    record = library[title]
+    filepath = os.path.join(BASE_DIR, record["file"])
+    if not os.path.exists(filepath):
+        print("[READ] ERROR: File missing from storage.")
+        return
+
+    with open(filepath, "rb") as f:
+        encrypted_data = f.read()
+
+    checksum_now = generate_checksum(encrypted_data)
+    integrity_status = "OK" if checksum_now == record["checksum"] else "FAILED"
+
+    decrypted_content = fernet.decrypt(encrypted_data).decode()
+    print(f"[READ] Title: '{title}' | Owner: {record['owner']}")
+    print(f"Encrypted content: {encrypted_data}")
+    print(f"Decrypted content:\n{decrypted_content}")
+    print(f"Stored Checksum: {record['checksum']}")
+    print(f"Current Checksum: {checksum_now}")
+    print(f"Integrity Check: {integrity_status}")
+    print(f"Last Modified: {record['last_modified']}\n")
+
+# === DEMO RUN FOR OUTPUT DISPLAY ===
+
+print("\n🎵 Secure Music Manager - ENCRYPTION & HASHING DEMO 🎵\n")
+
+create_artifact("younis", "anthem", "This is the original version of the anthem.")
+read_artifact("anthem")
+
+print("🎵 DEMO COMPLETE 🎵")
